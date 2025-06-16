@@ -1,0 +1,31 @@
+{
+  "name": "pup-finance",
+  "private": true,
+  "workspaces": [
+    "pup-finance-client",
+    "pup-finance-server"
+  ],
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "npm run start --workspace=pup-finance-client",
+    "server": "npm run dev --workspace=pup-finance-server",
+    "dev": "concurrently \"npm run server\" \"npm run start\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/5p1d32-m4n/pup-finance.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/5p1d32-m4n/pup-finance/issues"
+  },
+  "homepage": "https://github.com/5p1d32-m4n/pup-finance#readme",
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
