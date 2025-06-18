@@ -1,3 +1,6 @@
+/*
+ * TODO: Need to add the 'is_deleted' property to tables for soft deletion.
+ * */
 -- Drop existing tables (this has to be used cautiosly in production!)
 
 -- Add extensions if necessary
@@ -92,7 +95,52 @@ create table transactions(
 
 )
 
-create table debts()
-create table payments()
+-- OBSERVATIONS: there is a one to many relationshitp from user to debts and one from debts to payments
+-- there should be an optional one to one or one to many relationshipt from transactions to payments (if payment is also recorded as a general transaction)
+
+create table debts(
+	debt_id uuid primary key,
+	user_id foreign key not null, -- one to many relationship
+	debt_name varcahr(100) not null,
+	creditor_name varchar(100) not null,
+	original_amount decimal(18,2) not null,
+	current_balance decimal(18,2) not null,
+	interest_rate decimal(5,4) not null,
+	minimum_payment decimal(18,2) not null,
+	due_date date, -- next payment due date for the debt.
+	loan_type varchar(50), -- change to enum. calssification of the loan (credit, student, mortgage, etc.)
+	status varchar(50) not null default "Active", -- change to enum. status of the debt.
+	priority varchar(50), -- change to enum. user defined or system calculated for repayment (e.g. high interest rates, smallest ballance, custom, etc.)
+	created_at make_timestamptz() not null default now(), -- automatically records the timestamp of debt creation.
+	updated_at make_timestamptz() not null default now(), -- automatically on update 'current_timestamp'. automatically records the timestamp of the last modification to the debt record.
+	payoff_date date, -- estimated or actual date when the debt was fully paid off.
+)
+
+create table payments(
+	payment_id uuid primary key,
+	debt_id foreign key not null, -- one to many relationship
+	transaction_id foreign key nullable,
+	payment_date make_timestamptz(), --date when the payment was made.
+	notes text, -- optional field and for user added details or comments.
+	amount_paid decimal(18,2) not null, -- amount of payment.
+	payment_method varchar(50), -- how the payment was made.
+	created_at make_timestamptz() not null default now(), -- automatically records the timestamp of payment creation.
+)
+
+-- THIS IS THE AUDIT TRAIL TABLE AND IT IS FOR LOG PURPOSES (aka, CRITICAL)
+create table auditlog(
+	log_id uuid primary key,
+	log_timestamp make_timestamptz() not null default now(), -- the exact date & time the event ocurred.
+	user_id foreign key nullable,
+	event_type varchar(50) not null, -- the classification type of the log.
+	entity_type varchar(50) not null, -- the type of database entity (our other tables)
+	entity_id uuid nullable, -- id fo the specific entity affected by the event (example here: account_id)
+	old_value jsonb, -- the state of the record before the change, stored as JSON
+	new_value jsonb, -- the state of the record after the change, stored as JSON
+	description text,
+	ip_address varchar(45), -- the IP address from the originating action.
+	user_agent text, -- the user agent string of the client performing the action.
+	users foreign key nullable, -- many to one relationship with users (optional as some events might be system-generated.)
+)
 
 -- Create Indexes, where necessary
