@@ -1,146 +1,396 @@
 /*
- * TODO: Need to add the 'is_deleted' property to tables for soft deletion.
- * */
--- Drop existing tables (this has to be used cautiosly in production!)
+ * PostgreSQL Schema for Personal Finance Management Application
+ * Conforms to Design Specifications Document
+ * Includes: Users, Accounts, Categories, Budgets, Transactions, Debts, Payments, Audit Log
+ * Features: Soft Deletion, Multi-Currency Support, Hierarchical Categories, Budget Allocations
+ */
 
--- Add extensions if necessary
-create extension if not exists "pgcrypto";
+-- Enable cryptographic functions for UUIDs
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- Implement core entities (users has a tendency to be a repeated entity)
+-- Create custom ENUM types
+CREATE TYPE account_type AS ENUM (
+    'CHECKING', 'SAVINGS', 'CREDIT_CARD', 
+    'INVESTMENT', 'LOAN', 'CASH', 'OTHER'
+);
 
--- Users table (core entity)
-create table users(
-	user_id UUID primary key default gen_random_uuid(),
- 	username varchar(128) unique not null,
-	email varchar(255) unique not null check (email ~* '^[\w\-\.+@([\w-]+\.)+[\w-]{2,}$]'),
-	password_hash varchar(255) not null,
-	created_at make_timestamptz() not null default now(),
-	updated_at make_timestamptz() not null default now(),
-	last_login make_timestamptz(),
-	is_active boolean not null default true,
-	phone_number varchar(20),
-	email_verified boolean not null default true,
-	phone_verified boolean not null default true,
-	given_name varchar(100),
-	family_name varchar(100),
-	profile_picture_url text
-)
+CREATE TYPE transaction_type AS ENUM (
+    'INCOME', 'EXPENSE', 'TRANSFER'
+);
 
-create table accounts(
-	account_id uuid primary key default gen_random_uuid(),
-	user_id foreign key not null,
-	account_name varchar(100) not null,
-	account_type varchar(100) not null, -- should i make this an enum?
-	current_balance decimal(18,2) not null, default 0.00, -- this field should be calculated or maintained via database triggers/materialized views to ensure consistency with
-	-- the sum of all associated Transactions
-	currency varchar(3) not null, -- ISO 4217 currency code for account
-	created_at make_timestamptz() not null default now(), -- automatically records the timestamp when the account record was created.
-	updated_at make_timestamptz() not null default now(), -- automatically records the timestamp of the last modification to the account record.
-	is_active boolean not null default true -- flag to indicate if an account is active or closed/deactivated. this is for soft deletion or archiving accounts and historical data
-	user_id foreign, -- one to many relation from users to accounts
-	accounts foreign, -- one to many relation from accounts to transactions
-	
-	-- the current_balance property should b the sum of accounts associated transactions and this should be the only source of truth. I'm going to make it a computed column or materialized view.
-	
-)
+CREATE TYPE budget_recurrence AS ENUM (
+    'NONE', 'DAILY', 'WEEKLY', 'BIWEEKLY',
+    'MONTHLY', 'QUARTERLY', 'ANNUALLY'
+);
 
-create table budgets(
-	budget_id uuid primary key default gen_random_uuid(),
-	user_id foreign key not null, -- key relation to users table
-	budget_name varchar(100 not null),
-	start_date date not null, -- the calendar beginning date of budget period.
-	end_date date not null, -- the calendar end date of the budget period.
-	total_budget_amount decimal(18,2) not null,
-	currency varchar(3) not null, -- the ISO 4217 currency code for the budget.
-	is_recurring boolean not null default false,
-	recurrence_period varchar(50), -- make this in to an enum or lookup table. if 'is_recurring' is true, this specifies the period (monthly, annually, weekly, quarterly)
-	created_at make_timestamptz() not null default now(), -- automatically records the timestamp of budget creation.
-	updated_at make_timestamptz() not null default now(), -- automatically on update 'current_timestamp'. automatically records the timestamp of the last modification to the budget record.
-	user_id foreign, -- one to many relation from users to accounts
-	budgets foreign, -- one to many relation from budgets to budgetcategoryallocations -> the categories are for granular category level budgeting.
-	transactions foreign, -- many to one relation from transactions to budgets. This one is optional for linking specific transactions directly to a budget, though often linked via budget category allocations.
-)
+CREATE TYPE debt_status AS ENUM (
+    'ACTIVE', 'PAID_OFF', 'DEFAULTED', 
+    'SETTLED', 'COLLECTIONS'
+);
 
-create table categories(
-	category_id uuid primary key,
-	user_id foreign key null, -- links to users for table of user-defined custom categories. if this field is null it's a system defined (predefined) category
-	category_name varchar(100) not null,
-	category_type varchar(20) not null, -- make this into an enum. a classification of the category, indicating its financial nature (expense, income, transfer). to distinguish between spending and income types.
-	parent_category_id foreign key nullable, -- self referencing foreign key that points to another category_id within the same table. This property is crucial for supporting hierarchical categories (e.g., 'Food' as a parent category for 'Groceries' and 'Dining Out')
-	is_system_defined boolean, not null default false, -- a flag to distinguish between predefined system categories and those created by users.
-	created_at make_timestamptz() not null default now(), -- automatically records the timestamp of category creation.
-	updated_at make_timestamptz() not null default now(), -- automatically on update 'current_timestamp'. automatically records the timestamp of the last modification to the category record.
-	user_id foreign, -- one to many relation from users to accounts
-	categories foreign, -- self referencing relationship for hierarchical structure (a category can have a parent category).
-	transactions foreign, -- one to many relation from categories to transactions. 
-)
+CREATE TYPE debt_priority AS ENUM (
+    'HIGH_INTEREST', 'SMALLEST_BALANCE', 
+    'HIGHEST_BALANCE', 'CUSTOM'
+);
 
-create table transactions(
-	transaction_id uuid primary key,
-	account_id foreign key not null,
-	category_id foreign key not null,
-	budget_id foreign key nullable,
-	transaction_date make_timestamptz() not null, -- the date & time when the transaction occurred.
-	amount decimal(18,2) not null, --The monetary value of the transaction. It is crucial to use DECIMAL or NUMERIC data types for precise currency representation, avoiding floating-point inaccuracies inherent in floating-point numbers.
-	transaction_type varchar(20) not null, -- make into an enum. just for clarifications vs category_type.
-	description text, -- brief user provided not or system generated desc of the transaction.
-	notes text, -- optional field and for user added details or comments.
-	merchant_name varchar(255), -- the name of the merchant, vendor, or payee involved in the transaction. this is particularly for automated categorization and analysis.
-	is_cleared boolean not null default false, -- a flag indicating whether the transaction has been reconciled or cleared by the bank.
-	created_at make_timestamptz() not null default now(), -- automatically records the timestamp of transaction creation.
-	updated_at make_timestamptz() not null default now(), -- automatically on update 'current_timestamp'. automatically records the timestamp of the last modification to the transaction record.
-	accounts foreign, -- many to one relation exists with accounts, as each transaction belongs to a specific account.
-	categories foreign, -- many to one relation exists with categories, linking each transaction to its classification.
-	budgets foreign, -- many to one relation exists with budgets (optionalj, for direct budget linking).
+-- Users table (Core entity with enhanced security)
+CREATE TABLE users (
+    user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    username VARCHAR(128) UNIQUE NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL 
+        CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'),
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    last_login TIMESTAMPTZ,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    phone_number VARCHAR(20),
+    email_verified BOOLEAN NOT NULL DEFAULT FALSE,  -- Security compliance
+    phone_verified BOOLEAN NOT NULL DEFAULT FALSE,  -- Security compliance
+    given_name VARCHAR(100),
+    family_name VARCHAR(100),
+    profile_picture_url TEXT,
+    deleted_at TIMESTAMPTZ DEFAULT NULL,
+    user_metadata JSONB,  -- For flexible user preferences
+    app_metadata JSONB    -- For application-specific settings
+);
 
-)
+-- Accounts table with currency validation
+CREATE TABLE accounts (
+    account_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    account_name VARCHAR(100) NOT NULL,
+    account_type ACCOUNT_TYPE NOT NULL,  -- ENUM usage
+    current_balance DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+    currency VARCHAR(3) NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    deleted_at TIMESTAMPTZ DEFAULT NULL,
+    institution_name VARCHAR(100),  -- Added per financial account requirements
+    last_synced_at TIMESTAMPTZ      -- For external account connections
+);
 
--- OBSERVATIONS: there is a one to many relationshitp from user to debts and one from debts to payments
--- there should be an optional one to one or one to many relationshipt from transactions to payments (if payment is also recorded as a general transaction)
+-- Categories with hierarchical support
+CREATE TABLE categories (
+    category_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
+    category_name VARCHAR(100) NOT NULL,
+    category_type TRANSACTION_TYPE NOT NULL,  -- ENUM usage
+    parent_category_id UUID REFERENCES categories(category_id) ON DELETE SET NULL,
+    is_system_defined BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    deleted_at TIMESTAMPTZ DEFAULT NULL,
+    color_code VARCHAR(7),  -- For UI presentation
+    UNIQUE (user_id, category_name)  -- Per-user unique category names
+);
 
-create table debts(
-	debt_id uuid primary key,
-	user_id foreign key not null, -- one to many relationship
-	debt_name varcahr(100) not null,
-	creditor_name varchar(100) not null,
-	original_amount decimal(18,2) not null,
-	current_balance decimal(18,2) not null,
-	interest_rate decimal(5,4) not null,
-	minimum_payment decimal(18,2) not null,
-	due_date date, -- next payment due date for the debt.
-	loan_type varchar(50), -- change to enum. calssification of the loan (credit, student, mortgage, etc.)
-	status varchar(50) not null default "Active", -- change to enum. status of the debt.
-	priority varchar(50), -- change to enum. user defined or system calculated for repayment (e.g. high interest rates, smallest ballance, custom, etc.)
-	created_at make_timestamptz() not null default now(), -- automatically records the timestamp of debt creation.
-	updated_at make_timestamptz() not null default now(), -- automatically on update 'current_timestamp'. automatically records the timestamp of the last modification to the debt record.
-	payoff_date date, -- estimated or actual date when the debt was fully paid off.
-)
+-- Budgets with recurrence support
+CREATE TABLE budgets (
+    budget_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE RESTRICT,
+    budget_name VARCHAR(100) NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL CHECK (start_date < end_date),
+    total_budget_amount DECIMAL(18,2) NOT NULL,
+    currency VARCHAR(3) NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+    is_recurring BOOLEAN NOT NULL DEFAULT FALSE,
+    recurrence_period BUDGET_RECURRENCE NOT NULL DEFAULT 'NONE',
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    deleted_at TIMESTAMPTZ DEFAULT NULL
+);
 
-create table payments(
-	payment_id uuid primary key,
-	debt_id foreign key not null, -- one to many relationship
-	transaction_id foreign key nullable,
-	payment_date make_timestamptz(), --date when the payment was made.
-	notes text, -- optional field and for user added details or comments.
-	amount_paid decimal(18,2) not null, -- amount of payment.
-	payment_method varchar(50), -- how the payment was made.
-	created_at make_timestamptz() not null default now(), -- automatically records the timestamp of payment creation.
-)
+-- Budget Category Allocations (Required for granular budgeting)
+CREATE TABLE budget_category_allocations (
+    allocation_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    budget_id UUID NOT NULL REFERENCES budgets(budget_id) ON DELETE CASCADE,
+    category_id UUID NOT NULL REFERENCES categories(category_id) ON DELETE RESTRICT,
+    allocated_amount DECIMAL(18,2) NOT NULL CHECK (allocated_amount >= 0),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    UNIQUE (budget_id, category_id)  -- One allocation per category per budget
+);
 
--- THIS IS THE AUDIT TRAIL TABLE AND IT IS FOR LOG PURPOSES (aka, CRITICAL)
-create table auditlog(
-	log_id uuid primary key,
-	log_timestamp make_timestamptz() not null default now(), -- the exact date & time the event ocurred.
-	user_id foreign key nullable,
-	event_type varchar(50) not null, -- the classification type of the log.
-	entity_type varchar(50) not null, -- the type of database entity (our other tables)
-	entity_id uuid nullable, -- id fo the specific entity affected by the event (example here: account_id)
-	old_value jsonb, -- the state of the record before the change, stored as JSON
-	new_value jsonb, -- the state of the record after the change, stored as JSON
-	description text,
-	ip_address varchar(45), -- the IP address from the originating action.
-	user_agent text, -- the user agent string of the client performing the action.
-	users foreign key nullable, -- many to one relationship with users (optional as some events might be system-generated.)
-)
+-- Transactions with full multi-currency support
+CREATE TABLE transactions (
+    transaction_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    account_id UUID NOT NULL REFERENCES accounts(account_id) ON DELETE RESTRICT,
+    category_id UUID NOT NULL REFERENCES categories(category_id),
+    budget_id UUID REFERENCES budgets(budget_id) ON DELETE SET NULL,
+    transaction_date TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    amount DECIMAL(18,2) NOT NULL,
+    transaction_type TRANSACTION_TYPE NOT NULL,  -- ENUM usage
+    description TEXT,
+    notes TEXT,
+    merchant_name VARCHAR(255),
+    payment_method VARCHAR(50),
+    is_cleared BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    deleted_at TIMESTAMPTZ DEFAULT NULL,
+    
+    -- Multi-currency fields
+    currency VARCHAR(3) NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+    exchange_rate DECIMAL(12,6) NOT NULL DEFAULT 1.0,
+    original_amount DECIMAL(18,2),
+    original_currency VARCHAR(3) CHECK (original_currency ~ '^[A-Z]{3}$'),
+    
+    -- Reconciliation fields
+    reconciled_at TIMESTAMPTZ,
+    reconciliation_id UUID
+);
 
--- Create Indexes, where necessary
+-- Debts with enhanced financial tracking
+CREATE TABLE debts (
+    debt_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE RESTRICT,
+    debt_name VARCHAR(100) NOT NULL,
+    creditor_name VARCHAR(100) NOT NULL,
+    original_amount DECIMAL(18,2) NOT NULL,
+    current_balance DECIMAL(18,2) NOT NULL,
+    interest_rate DECIMAL(7,4) NOT NULL,  -- Supports rates like 15.9999%
+    minimum_payment DECIMAL(18,2) NOT NULL,
+    due_date DATE,
+    loan_type VARCHAR(50),
+    status DEBT_STATUS NOT NULL DEFAULT 'ACTIVE',  -- ENUM usage
+    priority DEBT_PRIORITY,  -- ENUM usage
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    payoff_date DATE,
+    deleted_at TIMESTAMPTZ DEFAULT NULL,
+    apr DECIMAL(7,4),  -- Separate from base interest rate
+    term_months INT     -- Loan term in months
+);
+
+-- Payments with transaction linking
+CREATE TABLE payments (
+    payment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    debt_id UUID NOT NULL REFERENCES debts(debt_id) ON DELETE RESTRICT,
+    transaction_id UUID REFERENCES transactions(transaction_id) ON DELETE SET NULL,
+    payment_date TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    amount_paid DECIMAL(18,2) NOT NULL,
+    payment_method VARCHAR(50),
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    deleted_at TIMESTAMPTZ DEFAULT NULL,
+    applied_interest DECIMAL(18,2) DEFAULT 0.00,  -- Interest portion of payment
+    applied_principal DECIMAL(18,2)               -- Principal portion of payment
+);
+
+-- Audit Log (Immutable record of changes)
+CREATE TABLE auditlog (
+    log_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    log_timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
+    event_type VARCHAR(50) NOT NULL,
+    entity_type VARCHAR(50) NOT NULL,
+    entity_id UUID,
+    operation_type VARCHAR(10) NOT NULL CHECK (operation_type IN ('CREATE', 'UPDATE', 'DELETE')),
+    old_value JSONB,
+    new_value JSONB,
+    description TEXT,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    -- No deleted_at for audit logs
+    session_id UUID  -- For tracking user sessions
+);
+
+-- ========================
+-- TRIGGERS AND FUNCTIONS
+-- ========================
+
+-- Function to update timestamp on record modification
+CREATE OR REPLACE FUNCTION update_modified_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to maintain account balances
+CREATE OR REPLACE FUNCTION update_account_balance()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE accounts 
+    SET current_balance = (
+        SELECT COALESCE(SUM(
+            CASE WHEN transaction_type = 'INCOME' THEN amount
+                 WHEN transaction_type = 'EXPENSE' THEN -amount
+                 ELSE 0 
+            END
+        ), 0.00)
+        FROM transactions 
+        WHERE account_id = NEW.account_id
+        AND deleted_at IS NULL
+    )
+    WHERE account_id = NEW.account_id;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to maintain debt balances
+CREATE OR REPLACE FUNCTION update_debt_balance()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE debts 
+    SET current_balance = GREATEST(0, original_amount - COALESCE((
+        SELECT SUM(amount_paid)
+        FROM payments 
+        WHERE debt_id = NEW.debt_id
+        AND deleted_at IS NULL
+    ), 0))
+    WHERE debt_id = NEW.debt_id;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function for automated budget rollover
+CREATE FUNCTION rollover_budget()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO budgets (
+        user_id, budget_name, start_date, end_date, 
+        total_budget_amount, currency, is_recurring, 
+        recurrence_period
+    )
+    SELECT 
+        user_id, 
+        budget_name || ' ' || TO_CHAR(NOW(), 'YYYY-MM'),
+        NOW() + interval '1 month',
+        NOW() + interval '2 months' - interval '1 day',
+        total_budget_amount,
+        currency,
+        TRUE,
+        'MONTHLY'
+    FROM budgets
+    WHERE budget_id = NEW.budget_id
+    AND recurrence_period = 'MONTHLY'
+    AND end_date = NEW.end_date;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create triggers for timestamp updates
+CREATE TRIGGER update_users_modified
+BEFORE UPDATE ON users
+FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+CREATE TRIGGER update_accounts_modified
+BEFORE UPDATE ON accounts
+FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+CREATE TRIGGER update_categories_modified
+BEFORE UPDATE ON categories
+FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+CREATE TRIGGER update_budgets_modified
+BEFORE UPDATE ON budgets
+FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+CREATE TRIGGER update_transactions_modified
+BEFORE UPDATE ON transactions
+FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+CREATE TRIGGER update_debts_modified
+BEFORE UPDATE ON debts
+FOR EACH ROW EXECUTE FUNCTION update_modified_column();
+
+-- Create triggers for balance maintenance
+CREATE TRIGGER account_balance_after_transaction
+AFTER INSERT OR UPDATE OR DELETE ON transactions
+FOR EACH ROW EXECUTE FUNCTION update_account_balance();
+
+CREATE TRIGGER debt_balance_after_payment
+AFTER INSERT OR UPDATE OR DELETE ON payments
+FOR EACH ROW EXECUTE FUNCTION update_debt_balance();
+
+-- ========================
+-- INDEXES FOR PERFORMANCE
+-- ========================
+
+-- Users table indexes
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_active ON users(user_id) WHERE deleted_at IS NULL;
+
+-- Accounts table indexes
+CREATE INDEX idx_accounts_user ON accounts(user_id);
+CREATE INDEX idx_accounts_active ON accounts(account_id) WHERE deleted_at IS NULL;
+
+-- Categories table indexes
+CREATE INDEX idx_categories_user ON categories(user_id);
+CREATE INDEX idx_categories_parent ON categories(parent_category_id);
+
+-- Transactions table indexes
+CREATE INDEX idx_transactions_account ON transactions(account_id);
+CREATE INDEX idx_transactions_date ON transactions(transaction_date);
+CREATE INDEX idx_transactions_category ON transactions(category_id);
+CREATE INDEX idx_transactions_cleared ON transactions(is_cleared) WHERE NOT is_cleared;
+
+-- Budgets table indexes
+CREATE INDEX idx_budgets_user ON budgets(user_id);
+CREATE INDEX idx_budgets_dates ON budgets(start_date, end_date);
+
+-- Debts table indexes
+CREATE INDEX idx_debts_user ON debts(user_id);
+CREATE INDEX idx_debts_status ON debts(status);
+
+-- Payments table indexes
+CREATE INDEX idx_payments_debt ON payments(debt_id);
+CREATE INDEX idx_payments_date ON payments(payment_date);
+
+-- Audit log indexes
+CREATE INDEX idx_audit_entity ON auditlog(entity_type, entity_id);
+CREATE INDEX idx_audit_timestamp ON auditlog(log_timestamp);
+
+-- ========================
+-- Row-Level Security
+-- ========================
+
+-- row security for accounts.
+ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY user_accounts ON accounts 
+    USING (user_id = current_user_id());
+
+-- ========================
+-- MATERIALIZED VIEWS
+-- ========================
+
+-- For fast balance queries
+CREATE MATERIALIZED VIEW account_balances AS
+SELECT 
+    a.account_id,
+    COALESCE(SUM(
+        CASE t.transaction_type 
+            WHEN 'INCOME' THEN t.amount
+            WHEN 'EXPENSE' THEN -t.amount
+            ELSE 0 
+        END
+    ), 0.00) AS current_balance,
+    MAX(t.transaction_date) AS last_transaction
+FROM accounts a
+LEFT JOIN transactions t ON a.account_id = t.account_id
+WHERE a.deleted_at IS NULL AND t.deleted_at IS NULL
+GROUP BY a.account_id;
+
+-- Budget progress view
+CREATE MATERIALIZED VIEW budget_progress AS
+SELECT 
+    b.budget_id,
+    b.total_budget_amount,
+    COALESCE(SUM(t.amount), 0.00) AS spent_amount,
+    COALESCE(SUM(t.amount) / NULLIF(b.total_budget_amount, 0), 0) AS progress
+FROM budgets b
+LEFT JOIN transactions t ON b.budget_id = t.budget_id
+WHERE b.deleted_at IS NULL AND t.deleted_at IS NULL
+GROUP BY b.budget_id;
+
+
+-- Transaction Reconciliation
+ALTER TABLE transactions ADD COLUMN reconciled_at TIMESTAMPTZ;
+ALTER TABLE transactions ADD COLUMN reconciliation_id UUID;
