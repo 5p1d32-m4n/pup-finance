@@ -1,10 +1,11 @@
 const express = require('express');
-const authMiddleware = require('./middleware/authMiddleware');
+const jwtCheck = require('./middleware/authMiddleware');
 const prisma = require('./config/prisma');
 const app = express();
 
 // Middleware to parse JSON request bodies
 app.use(express.json());
+app.use(jwtCheck);
 
 // Routes
 app.get('/', (req, res) => {
