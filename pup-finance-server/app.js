@@ -1,4 +1,5 @@
 const express = require('express');
+const authMiddleware = require('./middleware/authMiddleware');
 const prisma = require('./config/prisma');
 const app = express();
 
