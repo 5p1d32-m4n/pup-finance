@@ -1,7 +1,26 @@
 const express = require('express');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const hpp = require('hpp');
 const { jwtCheck, checkPermissions, checkRoles, handleAuthErrors } = require('./middleware/authMiddleware');
+const auditLogMiddleware = require('./middleware/auditLogMiddleware');
 const prisma = require('./config/prisma');
 const app = express();
+
+// --- Core security middleware ---
+app.use(helmet()); // setting http headers for security
+app.use(hpp()); // protection against http param polution attacks (initially in 2009 resurge in 2021).
+
+// --- Rate limiting (done before other middleware that would consume resources.)
+// Defining rate limits for general API access
+const apiLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 mins. TODO: make the '15' an env var and change the message to reflect limit.
+    max: 100, // Limit each ip to 100 requests per windowMs.
+    message: `Too many requests from this IP, please try again after ${15} minutes.`
+});
+
+// Applying the limiter
+app.use('/api/', apiLimiter);
 
 // Middleware to parse JSON request bodies
 app.use(express.json());
@@ -11,6 +30,9 @@ app.use(express.json());
 // Any route defined BEFORE this line will be public.
 // Any route defined AFTER this line will require a valid JWT.
 app.use(jwtCheck);
+
+// --- Audit Logging Middleware (After auth, but before routing)
+app.use(auditLogMiddleware);
 
 // --- Public Route Example (No JWT required if placed before app.use(jwtCheck)) ---
 // To make a route public when app.use(jwtCheck) is global, you'd define it *before* that line.
