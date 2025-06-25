@@ -1,18 +1,31 @@
 const express = require('express');
-const jwtCheck = require('./middleware/authMiddleware');
+const { jwtCheck, checkPermissions, checkRoles, handleAuthErrors } = require('./middleware/authMiddleware');
 const prisma = require('./config/prisma');
 const app = express();
 
 // Middleware to parse JSON request bodies
 app.use(express.json());
+
+// --- Global Authentication Middleware ---
+// Apply jwtCheck to all routes *after* this point.
+// Any route defined BEFORE this line will be public.
+// Any route defined AFTER this line will require a valid JWT.
 app.use(jwtCheck);
 
-// Routes
+// --- Public Route Example (No JWT required if placed before app.use(jwtCheck)) ---
+// To make a route public when app.use(jwtCheck) is global, you'd define it *before* that line.
+// For example:
+// app.get('/public-info', (req, res) => {
+//   res.send('This is public information.');
+// });
+
+// Routes requiring a valid JWT (because app.use(jwtCheck) is applied globally)
 app.get('/', (req, res) => {
-    res.send('Hello, Pup-Finance!');
+    // If you reach here, the token is valid!
+    res.send('Hello, Pup-Finance! Your token is valid.');
 });
 
-// Example route to test the database connection
+// Example route to test the database connection (now also protected by JWT)
 app.get('/test-db', async (req, res) => {
     try {
         const result = await prisma.$queryRaw`SELECT NOW()`;
@@ -22,6 +35,43 @@ app.get('/test-db', async (req, res) => {
         res.status(500).json({ error: 'Internal Server Error' });
     }
 });
+
+// --- Protected Routes with Specific Permissions ---
+// TODO: Move these to routes.
+
+// Example: Get user's account balance - requires 'read:accounts' permission
+app.get('/accounts/:accountId', checkPermissions(['read:accounts']), (req, res) => {
+    const { accountId } = req.params;
+    // In a real app, you'd fetch data for this accountId for the authenticated user
+    // You can access user info from the token via req.auth.payload
+    // e.g., const userId = req.auth.payload.sub;
+    res.json({ message: `Accessing account ${accountId}`, data: { balance: 1234.56, currency: 'USD' } });
+});
+
+// Example: Create a new transaction - requires 'write:transactions' permission
+app.post('/transactions', checkPermissions(['write:transactions']), (req, res) => {
+    const { amount, type, description } = req.body;
+    // Process the transaction for the authenticated user
+    res.status(201).json({ message: 'Transaction created successfully', transaction: { amount, type, description } });
+});
+
+// Example: Admin route to manage users - requires 'manage:users' permission
+app.put('/users/:userId', checkPermissions(['manage:users']), (req, res) => {
+    const { userId } = req.params;
+    // Logic to update user details
+    res.json({ message: `User ${userId} updated successfully.` });
+});
+
+// Example: Admin dashboard access - requires 'admin' role
+// This demonstrates using roles for broader access control
+app.get('/admin-dashboard', checkRoles(['admin']), (req, res) => {
+    res.json({ message: 'Welcome, Admin! This is your dashboard data.' });
+});
+
+
+// --- Error Handling Middleware ---
+// IMPORTANT: This must be placed AFTER all your routes and other middlewares.
+app.use(handleAuthErrors);
 
 // Export the app instance to be used by the server
 module.exports = app;
