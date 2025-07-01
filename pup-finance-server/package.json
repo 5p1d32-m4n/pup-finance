@@ -4,7 +4,7 @@
   "description": "TypeScript Express API for Pup Finance",
   "main": "dist/app.js",
   "scripts": {
-    "dev": "concurrently \"npx prisma generate\" \"ts-node-dev --respawn src/app.ts\"",
+    "dev": "concurrently \"npx prisma generate\" \"npx ts-node-dev --respawn src/app.ts\"",
     "build": "tsc",
     "start": "node dist/app.js",
     "test": "jest --watchAll",
