@@ -1,12 +1,6 @@
-import { Request, Response, NextFunction } from 'express';
-import prisma from '../config/prisma';
+import { Request, Response, NextFunction,RequestHandler  } from 'express';
+import prisma from '../../config/prisma';
 import { Prisma } from '@prisma/client';
-
-type Auth0Payload = {
-  sub: string;
-  permissions?: string[];
-  [key: string]: any;
-};
 
 export const auditLogMiddleware = async (
   req: Request,
@@ -16,7 +10,7 @@ export const auditLogMiddleware = async (
   // Skip if no auth payload (public routes)
   if (!req.auth?.payload) return next();
 
-  const payload = req.auth.payload as Auth0Payload;
+  const payload = req.auth.payload;
   const userId = payload.sub;
   const ipAddress = req.ip;
   const userAgent = req.headers['user-agent'];

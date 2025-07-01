@@ -7,8 +7,8 @@ import {
   checkPermissions, 
   checkRoles, 
   handleAuthErrors,
-} from './middleware/authMiddleware';
-import {auditLogMiddleware} from './middleware/auditLogMiddleware';
+} from './modules/auth/auth.middleware';
+import {auditLogMiddleware} from './modules/auditLog/auditLog.middleware';
 import prisma from './config/prisma';
 import { Request, Response, NextFunction } from 'express';
 
@@ -16,7 +16,7 @@ const app = express();
 
 // --- Core security middleware ---
 app.use(helmet()); // HTTP security headers
-app.use(hpp() as any); // Protection against HTTP Parameter Pollution attacks
+app.use(hpp()); // Protection against HTTP Parameter Pollution attacks
 
 // --- Rate limiting ---
 const API_RATE_LIMIT_WINDOW_MINUTES = process.env.API_RATE_LIMIT_WINDOW || '15';
@@ -24,17 +24,15 @@ const apiLimiter = rateLimit({
   windowMs: parseInt(API_RATE_LIMIT_WINDOW_MINUTES) * 60 * 1000,
   max: 100,
   message: `Too many requests from this IP, please try again after ${API_RATE_LIMIT_WINDOW_MINUTES} minutes.`,
-  standardHeaders: true,
-  legacyHeaders: false
 });
 
-app.use('/api/', apiLimiter as any);
+app.use('/api/', apiLimiter);
 
 // --- Body parsing ---
 app.use(express.json());
 
 // --- Global Authentication Middleware ---
-app.use(jwtCheck as any);
+app.use(jwtCheck);
 
 // --- Audit Logging ---
 app.use(auditLogMiddleware);
@@ -58,38 +56,6 @@ app.get('/test-db', async (req: Request, res: Response) => {
 });
 
 // --- Protected Routes ---
-app.get(
-  '/accounts/:accountId', 
-  checkPermissions(['read:accounts']), 
-  (req: Request, res: Response) => {
-    const { accountId } = req.params;
-    res.json({ 
-      message: `Accessing account ${accountId}`, 
-      data: { balance: 1234.56, currency: 'USD' } 
-    });
-  }
-);
-
-app.post(
-  '/transactions', 
-  checkPermissions(['write:transactions']), 
-  (req: Request, res: Response) => {
-    const { amount, type, description } = req.body;
-    res.status(201).json({ 
-      message: 'Transaction created successfully', 
-      transaction: { amount, type, description } 
-    });
-  }
-);
-
-app.put(
-  '/users/:userId', 
-  checkPermissions(['manage:users']), 
-  (req: Request, res: Response) => {
-    const { userId } = req.params;
-    res.json({ message: `User ${userId} updated successfully.` });
-  }
-);
 
 app.get(
   '/admin-dashboard', 

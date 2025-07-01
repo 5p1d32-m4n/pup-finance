@@ -1,4 +1,13 @@
+import 'express-oauth2-jwt-bearer';
 import { Prisma } from '@prisma/client';
+
+declare module 'express-oauth2-jwt-bearer' {
+  interface JWTPayload {
+    sub: string;
+    permissions?: string[];
+    [key: string]: any;
+  }
+}
 
 declare global {
   namespace Express {
