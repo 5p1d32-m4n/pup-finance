@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import prisma from '../config/prisma';
-import { UserUpdateSchema } from '../schemas/user.schema'; // Zod schema we'll create
+import prisma from '../../config/prisma';
+import { UserUpdateSchema } from '../../schemas/user.schema'; // Zod schema we'll create
 
 export const getCurrentUser = async (
   req: Request,
@@ -17,7 +17,7 @@ export const getCurrentUser = async (
       select: {
         id: true,
         email: true,
-        name: true,
+        username: true,
         createdAt: true,
       }
     });
@@ -44,7 +44,7 @@ export const updateUser = async (
       select: {
         id: true,
         email: true,
-        name: true
+        username: true
       }
     });
     res.json(updatedUser);
