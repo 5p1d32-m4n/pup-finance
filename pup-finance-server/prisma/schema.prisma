@@ -6,7 +6,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../generated/prisma"
 }
 
 datasource db {
@@ -256,20 +255,24 @@ model Payment {
 model AuditLog {
   id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   logTimestamp  DateTime @default(now()) @db.Timestamptz
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   userId        String?  @db.Uuid
+  
+  // Auth0 Specific Fields
+  auth0Id       String?  @db.VarChar(128)  // Stores Auth0's sub claim
+  clientId      String?  @db.VarChar(128)  // Auth0 client_id (azp claim)
+  
+  // Standard Fields
   eventType     String   @db.VarChar(50)
   entityType    String   @db.VarChar(50)
   entityId      String?  @db.Uuid
   operationType String   @db.VarChar(10)
-  oldValue      Json?
-  newValue      Json?
-  description   String?
   ipAddress     String?  @db.VarChar(45)
   userAgent     String?
-  sessionId     String?  @db.Uuid
+  metadata      Json?
+  auth0Metadata Json?    // Stores additional Auth0 context
 
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
-
+  @@index([userId], name: "idx_audit_user")
+  @@index([auth0Id], name: "idx_audit_auth0")
   @@index([entityType, entityId], name: "idx_audit_entity")
-  @@index([logTimestamp], name: "idx_audit_timestamp")
 }

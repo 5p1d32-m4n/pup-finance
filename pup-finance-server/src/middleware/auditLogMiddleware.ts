@@ -1,57 +1,81 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../config/prisma';
+import { Prisma } from '@prisma/client';
 
-interface AuditLogData {
-  userId: string;
-  action: string;
-  ipAddress?: string;
-  metadata?: Record<string, unknown>;
-}
+type Auth0Payload = {
+  sub: string;
+  permissions?: string[];
+  [key: string]: any;
+};
 
 export const auditLogMiddleware = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  if (req.auth?.payload) {
-    const userId = req.auth.payload.sub;
-    const action = `${req.method} ${req.originalUrl}`;
-    const ipAddress = req.ip;
+  // Skip if no auth payload (public routes)
+  if (!req.auth?.payload) return next();
 
-    // Skip sensitive fields
-    const sanitizedBody = req.body?.password 
-      ? { ...req.body, password: '*****' } 
-      : req.body;
+  const payload = req.auth.payload as Auth0Payload;
+  const userId = payload.sub;
+  const ipAddress = req.ip;
+  const userAgent = req.headers['user-agent'];
 
-    const logData: AuditLogData = {
-      userId: userId as string,
-      action,
-      ipAddress,
-      metadata: {
-        method: req.method,
-        path: req.originalUrl,
-        ...(req.method !== 'GET' && { body: sanitizedBody })
-      }
-    };
+  // Extract entity info from path
+  const [entityType, entityId] = req.originalUrl
+    .split('/')
+    .filter(Boolean);
 
-    // Console log (development)
-    console.log('[AUDIT]', logData);
+  // Prepare metadata (redacting sensitive fields)
+  const metadata: Prisma.JsonObject = {
+    method: req.method,
+    path: req.originalUrl,
+    query: req.query,
+    params: req.params,
+    ...(req.method !== 'GET' && { 
+      body: redactSensitiveFields(req.body) 
+    })
+  };
 
-    // Database log (production)
-    if (process.env.NODE_ENV === 'production') {
-      try {
-        await prisma.auditLog.create({
-          data: {
-            userId: logData.userId!, // Add non-null assertion as userId is guaranteed to exist here
-            action: logData.action,
-            ipAddress: logData.ipAddress,
-            metadata: logData.metadata
-          }
-        });
-      } catch (err) {
-        console.error('Audit log failed:', err);
-      }
+  // Create log in background (don't block request)
+  setImmediate(async () => {
+    try {
+      await prisma.auditLog.create({
+        data: {
+          eventType: 'API_REQUEST',
+          entityType: entityType || 'SYSTEM',
+          entityId: entityId,
+          operationType: req.method,
+          user: { connect: { auth0Id: userId } }, // Critical for Auth0
+          ipAddress,
+          userAgent,
+          metadata,
+          auth0Metadata: { // Special Auth0 context
+            clientId: payload.azp,
+            scope: payload.scope,
+            permissions: payload.permissions
+          } as Prisma.JsonObject
+        }
+      });
+    } catch (error) {
+      console.error('Audit log failed:', error);
     }
-  }
+  });
+
   next();
 };
+
+function redactSensitiveFields(data: any): any {
+  if (!data) return data;
+  
+  const sensitiveKeys = ['password', 'token', 'secret', 'creditCard'];
+  const redacted = { ...data };
+
+  sensitiveKeys.forEach(key => {
+    if (redacted[key]) {
+      redacted[key] = '*****';
+    }
+  });
+
+  return redacted;
+}
