@@ -4,7 +4,7 @@
   "description": "TypeScript Express API for Pup Finance",
   "main": "dist/app.js",
   "scripts": {
-    "dev": "npx ts-node-dev --respawn src/app.ts",
+    "dev": "npx ts-node-dev --respawn src/server.ts",
     "build": "tsc",
     "start": "node dist/app.js",
     "test": "npx dotenv -e .env.test -- jest --watchAll",
@@ -52,12 +52,5 @@
   },
   "prisma": {
     "schema": "prisma/schema.prisma"
-  },
-  "jest": {
-    "preset": "ts-jest",
-    "testEnvironment": "node",
-    "modulePaths": [
-      "<rootDir>/src"
-    ]
   }
 }
