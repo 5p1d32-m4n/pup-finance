@@ -1,13 +1,14 @@
 import { Router, Request, Response, NextFunction } from "express";
 import prisma from "../../config/prisma";
 import { body } from "express-validator";
+import { jwtCheck } from "../auth/auth.middleware";
 import {
   getCurrentUser,
   updateUser,
   deleteCurrentUser,
   syncUser,
 } from "./user.controller";
-import { validate } from "@/middleware/validationMiddleware";
+import { validate } from "../../middleware/validationMiddleware";
 import { UserUpdateSchema, UserSyncSchema } from "./user.schemas";
 
 const router = Router();
@@ -28,12 +29,9 @@ const verifyActionSecret = (req: Request, res: Response, next: NextFunction) => 
   res.status(401).json({ error: 'Unauthorized: Invalid or missing action secret.' });
 };
 
-// This is redundant because `jwtCheck` is already applied globally in `app.ts`.
-// router.use(jwtCheck);
-
-router.get('/me', getCurrentUser);
-router.patch('/me', validate(UserUpdateSchema), updateUser);
-router.delete('/me', deleteCurrentUser);
+router.get('/me', jwtCheck, getCurrentUser);
+router.patch('/me', jwtCheck, validate(UserUpdateSchema), updateUser);
+router.delete('/me', jwtCheck, deleteCurrentUser);
 
 router.post('/sync',
   verifyActionSecret,

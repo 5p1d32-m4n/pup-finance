@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../../config/prisma';
 import { v4 as uuidv4 } from 'uuid';
-import { UserUpdateSchema } from '@/schemas/user.schema';
+import { UserUpdateSchema } from '../../schemas/user.schema';
 
 export const getCurrentUser = async (
   req: Request,
