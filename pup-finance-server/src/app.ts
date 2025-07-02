@@ -9,6 +9,7 @@ import {
   handleAuthErrors,
 } from './modules/auth/auth.middleware';
 import {auditLogMiddleware} from './modules/auditLog/auditLog.middleware';
+import userRoutes from './modules/users/user.routes';
 import prisma from './config/prisma';
 import { Request, Response, NextFunction } from 'express';
 
@@ -31,16 +32,15 @@ app.use('/api/', apiLimiter);
 // --- Body parsing ---
 app.use(express.json());
 
-// --- Global Authentication Middleware ---
-app.use(jwtCheck);
-
 // --- Audit Logging ---
 app.use(auditLogMiddleware);
 
 // --- Routes ---
 app.get('/', (req: Request, res: Response) => {
-  res.send('Hello, Pup-Finance! Your token is valid.');
+  res.send('Hello, Pup-Finance!');
 });
+
+app.use('/api/users', userRoutes);
 
 app.get('/test-db', async (req: Request, res: Response) => {
   try {
@@ -59,6 +59,7 @@ app.get('/test-db', async (req: Request, res: Response) => {
 
 app.get(
   '/admin-dashboard', 
+  jwtCheck,
   checkRoles(['admin']), 
   (req: Request, res: Response) => {
     res.json({ message: 'Welcome, Admin! This is your dashboard data.' });
@@ -67,20 +68,5 @@ app.get(
 
 // --- Error Handling ---
 app.use(handleAuthErrors);
-
-// --- Server Setup ---
-const PORT = process.env.PORT || 3000;
-const server = app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-});
-
-// --- Cleanup Handling ---
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received - shutting down gracefully');
-  await prisma.$disconnect();
-  server.close(() => {
-    console.log('Server closed');
-  });
-});
 
 export default app;
