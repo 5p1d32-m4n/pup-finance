@@ -8,7 +8,7 @@ import {
   deleteCurrentUser,
   syncUser,
 } from "./user.controller";
-import { validate } from "../../middleware/validationMiddleware";
+import { validate } from "@/middleware/validationMiddleware";
 import { UserUpdateSchema, UserSyncSchema } from "./user.schemas";
 
 const router = Router();
