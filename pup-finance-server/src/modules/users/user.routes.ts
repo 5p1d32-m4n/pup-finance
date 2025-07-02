@@ -1,16 +1,32 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import prisma from "../../config/prisma";
-import {body} from "express-validator";
+import { body } from "express-validator";
 import {
-    getCurrentUser,
-    updateUser,
-    deleteCurrentUser
+  getCurrentUser,
+  updateUser,
+  deleteCurrentUser,
+  syncUser,
 } from "./user.controller";
-import { jwtCheck } from "../auth/auth.middleware";
 import { validate } from "@/middleware/validationMiddleware";
-import { UserUpdateSchema } from "@/schemas/user.schema";
+import { UserUpdateSchema, UserSyncSchema } from "./user.schemas";
 
 const router = Router();
+
+/**
+ * @description Middleware to verify the secret token sent from the Auth0 Action.
+ * This is CRITICAL to ensure that only Auth0 can call the /users/sync endpoint.
+ */
+const verifyActionSecret = (req: Request, res: Response, next: NextFunction) => {
+  const authHeader = req.headers['authorization'];
+  const secretFromHeader = authHeader && authHeader.split(' ')[1]; // Bearer <token>
+
+  if (secretFromHeader && secretFromHeader === process.env.API_SERVICE_TOKEN) {
+    return next(); // Token is valid, proceed to the next middleware/controller.
+  }
+
+  // If the token is missing or invalid, deny access.
+  res.status(401).json({ error: 'Unauthorized: Invalid or missing action secret.' });
+};
 
 // This is redundant because `jwtCheck` is already applied globally in `app.ts`.
 // router.use(jwtCheck);
@@ -19,35 +35,10 @@ router.get('/me', getCurrentUser);
 router.patch('/me', validate(UserUpdateSchema), updateUser);
 router.delete('/me', deleteCurrentUser);
 
-router.post('/sync', 
-  [
-    body('auth0Id').isString(),
-    body('email').isEmail().optional(),
-    body('name').isString().optional()
-  ],
-  async (req: Request, res: Response) => {
-    // Verify secret (critical for security)
-    if (req.headers['x-auth0-secret'] !== process.env.API_SERVICE_TOKEN) {
-      return res.sendStatus(401);
-    }
-
-    const { auth0Id, ...userData } = req.body;
-    
-    await prisma.user.upsert({
-      where: { auth0Id },
-      create: { 
-        auth0Id,
-        ...userData,
-        lastLogin: new Date() 
-      },
-      update: { 
-        ...userData,
-        lastLogin: new Date() 
-      }
-    });
-
-    res.sendStatus(200);
-  }
+router.post('/sync',
+  verifyActionSecret,
+  validate(UserSyncSchema),
+  syncUser
 );
 
 
