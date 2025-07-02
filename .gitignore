@@ -1,4 +1,3 @@
 node_modules
-**/pup-finance-*/.env
-pup-finance-server/.env.test
+**/pup-finance-*/.env*
 pup-finance-server/.env.test
