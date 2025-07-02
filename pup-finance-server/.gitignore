@@ -3,3 +3,4 @@ node_modules
 generated/
 **/pup-finance-*/.env.test
 env.test
+prisma/migrations
