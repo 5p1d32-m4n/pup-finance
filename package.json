@@ -26,7 +26,9 @@
   },
   "homepage": "https://github.com/5p1d32-m4n/pup-finance#readme",
   "devDependencies": {
-    "concurrently": "^9.1.2"
+    "@types/jest": "^30.0.0",
+    "concurrently": "^9.1.2",
+    "dotenv-cli": "^8.0.0"
   },
   "resolutions": {
     "express": "4.21.2",
