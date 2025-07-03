@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/app.js",
     "test": "npx dotenv -e .env.test -- jest --watchAll",
-    "test:migrate": "npx dotenv -e .env.test -- prisma migrate deploy",
+    "test:migrate": "npx dotenv -e .env.test -- \"prisma migrate deploy\"",
     "lint": "eslint . --ext .ts,.tsx",
     "prisma": "prisma",
     "migrate": "prisma migrate dev",
